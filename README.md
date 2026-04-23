@@ -1,99 +1,145 @@
-# burn/degree
+# 🔥 burn/degree — AI Burn Wound Classifier & Segmentation
 
-AI-assisted burn wound classification and segmentation. A fine-tuned
-**DINOv2-large + LoRA** backbone with a **SegFormer** decoder head predicts
-burn severity (1st / 2nd / 3rd degree) and produces a pixel-level map of the
-affected tissue, served through a FastAPI backend and a single-page frontend.
+<p align="center">
+  <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white"/>
+  <img src="https://img.shields.io/badge/HuggingFace-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black"/>
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
+  <img src="https://img.shields.io/badge/DINOv2-blue?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/LoRA-purple?style=for-the-badge"/>
+</p>
 
-> ⚠️ **Research demo only.** This is not a medical device and must not be
-> used for diagnosis. It is a portfolio project demonstrating transfer
-> learning, parameter-efficient fine-tuning, and multi-task learning on a
-> small dataset.
+<p align="center">
+  <b>🚀 <a href="https://huggingface.co/spaces/parthbhimani27/Burn_Detection">Live Demo on Hugging Face Spaces</a></b>
+</p>
+
+> ⚠️ **Research demo only.** This is not a medical device and must not be used for clinical diagnosis. It is a portfolio project demonstrating transfer learning, parameter-efficient fine-tuning, and multi-task learning on a small dataset.
 
 ---
 
-## Project structure
+## 📌 Overview
+
+**burn/degree** is an end-to-end deep learning system for burn wound **classification** and **segmentation**. It predicts burn severity across three clinical grades — 1st, 2nd, and 3rd degree — and produces a pixel-level segmentation overlay of the affected tissue area.
+
+The system is powered by a fine-tuned **DINOv2-large** backbone enhanced with **LoRA adapters**, paired with a **SegFormer** decoder head for segmentation. The backend is served as a **FastAPI** REST API with a lightweight single-page frontend.
+
+---
+
+## ✨ Features
+
+- **Multi-task inference** — joint classification (severity grade) and segmentation (pixel mask) in a single forward pass
+- **Parameter-efficient fine-tuning** — LoRA (rank 8, α=16) applied to Q/K/V/Output projections of DINOv2-large
+- **Test-Time Augmentation (TTA)** — 4-way flip ensemble (identity, H-flip, V-flip, HV-flip) for improved robustness
+- **Per-class area breakdown** — reports percentage of tissue area per burn grade
+- **Confidence scores** — softmax probabilities for all three classes
+- **Visual output** — returns the original image, segmentation mask, and blended overlay, all as base64 PNGs
+
+---
+
+## 🧠 Model Architecture
+
+| Component | Detail |
+|---|---|
+| Backbone | DINOv2-large (ViT-L/14) |
+| Fine-tuning strategy | LoRA — rank 8, α=16, applied to Q/K/V/Out projections |
+| Classification head | Learned query + MultiheadAttention pooling |
+| Segmentation head | SegFormer MLP decoder fusing layers 5 / 11 / 17 / 23 |
+| Input resolution | 224 × 224, ImageNet normalisation |
+| Training losses | Focal loss + Dice loss |
+| Augmentations | MixUp, CutMix, TTA at inference |
+| Regularisation | EMA, cosine warm-restart LR schedule, gradient checkpointing |
+| Training hardware | Single NVIDIA T4 GPU |
+
+---
+
+## 📁 Project Structure
 
 ```
 burn-classifier/
 ├── backend/
 │   ├── model.py          # BurnSOTAModel (inference-only)
-│   ├── inference.py      # preprocessing, TTA, overlay generation
+│   ├── inference.py      # Preprocessing, TTA, overlay generation
 │   └── main.py           # FastAPI app (API + static frontend)
 ├── static/
-│   └── index.html        # single-page frontend
-├── burn_final.pth        # ← your trained weights go here
+│   └── index.html        # Single-page frontend
+├── burn_final.pth        # ← Trained weights (not included in repo)
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Quick start
+## 🚀 Quick Start (Local)
 
-### 1. Create a virtual environment
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/<your-username>/burn-classifier.git
+cd burn-classifier
+```
+
+### 2. Create a virtual environment
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 ```
 
-### 2. Install dependencies
+### 3. Install dependencies
 
-For CPU-only (works anywhere, ~5–10 s per inference):
+**CPU-only** (works anywhere, ~5–10 s per inference):
 
 ```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 ```
 
-For CUDA 12.1 (GPU, <1 s per inference):
+**CUDA 12.1** (GPU, <1 s per inference):
 
 ```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 ```
 
-### 3. Drop in the trained weights
+### 4. Add trained weights
 
-Copy your `burn_final.pth` (produced by the training script) into the project
-root:
+Place your `burn_final.pth` in the project root:
 
 ```
 burn-classifier/burn_final.pth
 ```
 
-If you want to use a different path:
+To use a custom checkpoint path:
 
 ```bash
 export BURN_CHECKPOINT=/absolute/path/to/burn_final.pth
 ```
 
-### 4. Run
+### 5. Run the server
 
 ```bash
-cd burn-classifier
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Open <http://localhost:8000>. On first startup, `transformers` will download
-the DINOv2-large weights (~1.2 GB) — this takes a minute and only happens
-once.
+Open [http://localhost:8000](http://localhost:8000).
+
+> On first startup, `transformers` will download DINOv2-large weights (~1.2 GB from HuggingFace Hub). This only happens once.
 
 ---
 
-## Environment variables
+## ⚙️ Environment Variables
 
-| Variable           | Default                          | Purpose                                    |
-| ------------------ | -------------------------------- | ------------------------------------------ |
-| `BURN_CHECKPOINT`  | `./burn_final.pth`               | Path to the trained checkpoint.            |
-| `BURN_USE_TTA`     | `1`                              | Set to `0` to disable 4-way TTA (faster).  |
+| Variable | Default | Purpose |
+|---|---|---|
+| `BURN_CHECKPOINT` | `./burn_final.pth` | Path to the trained checkpoint |
+| `BURN_USE_TTA` | `1` | Set to `0` to disable 4-way TTA (faster inference) |
 
 ---
 
-## API
+## 🌐 API Reference
 
 ### `GET /api/health`
+
+Returns model and device status.
 
 ```json
 {
@@ -107,14 +153,16 @@ once.
 
 ### `POST /api/predict`
 
-Multipart form with a single `file` field (image).
+Submit an image for burn classification and segmentation.
+
+**Request:** Multipart form with a `file` field.
 
 ```bash
 curl -X POST http://localhost:8000/api/predict \
      -F "file=@sample.jpg"
 ```
 
-Response (truncated):
+**Response:**
 
 ```json
 {
@@ -143,33 +191,26 @@ Response (truncated):
 
 ---
 
-## Deployment notes
+## ☁️ Deployment
 
-This project is size-constrained by its weights:
+The live demo is hosted on **Hugging Face Spaces** (Docker runtime):
 
-- **DINOv2-large** (~1.2 GB, downloaded once from HuggingFace Hub at runtime).
-- Your `burn_final.pth` (hundreds of MB — too large for a normal git commit).
+🔗 [https://huggingface.co/spaces/parthbhimani27/Burn_Detection](https://huggingface.co/spaces/parthbhimani27/Burn_Detection)
 
-Three realistic deployment routes:
+### Deploy your own
 
-### A. Hugging Face Spaces *(recommended for a resume demo)*
+**Option A — Hugging Face Spaces** *(recommended)*
+- Upload the repo as a Docker Space
+- Upload `burn_final.pth` directly through the Spaces UI (no Git LFS required)
+- Free CPU tier available; upgradable to GPU
 
-- Best fit: the platform is designed for ML demos, free CPU tier available,
-  upgradable to GPU.
-- Upload `burn_final.pth` to the Space directly (Spaces support large files
-  without Git LFS).
-- Either keep the FastAPI app as-is (Docker Space) or convert to a Gradio
-  interface if you want a one-file option.
+**Option B — Render / Railway / Fly.io**
+- Host `burn_final.pth` on S3, GCS, or HF Hub and download at startup
+- Note: free CPU tiers may be RAM-constrained for DINOv2-large
 
-### B. Render / Railway / Fly.io
+**Option C — Docker + VPS**
 
-- Put the checkpoint on an object store (S3, GCS, HF Hub) and download at
-  startup, OR use Git LFS. Free CPU tiers are tight on RAM — you may need
-  a paid plan for DINOv2-large.
-
-### C. Docker + your own VPS
-
-```Dockerfile
+```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
 RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -184,31 +225,33 @@ CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ---
 
-## How it matches the training setup
+## 🔁 Training vs. Inference Consistency
 
-| Training detail                                      | Inference mirror                               |
-| ---------------------------------------------------- | ---------------------------------------------- |
-| DINOv2-large backbone + LoRA (rank 8, α=16) in Q/K/V/Out | LoRA injected **before** `load_state_dict`.     |
-| 224×224 input, ImageNet normalisation                | Same preprocessing.                            |
-| Classification head: learned query + MultiheadAttention pooling | Same module.                           |
-| Segmentation head: SegFormer MLP decoder fusing layers 5/11/17/23 | Same module.                           |
-| Eval TTA: identity + H-flip + V-flip + HV-flip       | Same flips, softmax averaged.                  |
-| Backbone `gradient_checkpointing_enable()`           | Explicitly disabled at load.                   |
-| `model.train()` during training                      | `model.eval()` + `torch.no_grad()` throughout. |
+| Training detail | Inference mirror |
+|---|---|
+| DINOv2-large + LoRA (rank 8, α=16) in Q/K/V/Out | LoRA injected **before** `load_state_dict` |
+| 224×224 input, ImageNet normalisation | Identical preprocessing |
+| Classification head: learned query + MHA pooling | Same module |
+| Segmentation head: SegFormer MLP decoder (layers 5/11/17/23) | Same module |
+| TTA: identity + H-flip + V-flip + HV-flip | Same flips, softmax-averaged |
+| `gradient_checkpointing_enable()` during training | Explicitly disabled at load |
+| `model.train()` during training | `model.eval()` + `torch.no_grad()` at inference |
 
 ---
 
-## For your resume
+## 🛠️ Tech Stack
 
-Short description you can lift:
+`PyTorch` · `Transformers (HuggingFace)` · `DINOv2` · `LoRA / PEFT` · `SegFormer` · `FastAPI` · `Uvicorn` · `Pillow` · `NumPy`
 
-> **Burn Wound Classifier** — End-to-end multi-task deep learning project:
-> fine-tuned DINOv2-large with LoRA adapters for joint classification and
-> segmentation of burn wounds (1st/2nd/3rd degree). Two-stage training with
-> focal + dice losses, MixUp/CutMix, EMA, and cosine warm-restart schedules
-> on a single T4 GPU. Deployed as a FastAPI + vanilla-JS web app with
-> test-time augmentation at inference.
+---
 
-**Keywords worth highlighting:** PyTorch, Transformers, DINOv2, LoRA
-(parameter-efficient fine-tuning), multi-task learning, SegFormer, mixed
-precision, gradient checkpointing, EMA, FastAPI.
+## 📄 License
+
+This project is released for educational and portfolio purposes. The model weights are not intended for commercial or clinical use.
+
+---
+
+## 🙋 Author
+
+**Parth Bhimani**
+[Hugging Face](https://huggingface.co/parthbhimani27) · [GitHub](https://github.com/<your-username>)
