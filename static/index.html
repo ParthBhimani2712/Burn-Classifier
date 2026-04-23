@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>burn/degree — AI-assisted burn wound analysis</title>
+<meta name="description" content="Research demo: EfficientNet-B3 + U-Net multi-task model for classification and binary segmentation of burn wound images into 1st, 2nd, and 3rd degree.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400;1,500&family=Space+Grotesk:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:    #faf7f2;
+    --paper-2:  #f2ece0;
+    --ink:      #1c1812;
+    --ink-70:   rgba(28, 24, 18, 0.72);
+    --ink-50:   rgba(28, 24, 18, 0.52);
+    --ink-30:   rgba(28, 24, 18, 0.30);
+    --ink-12:   rgba(28, 24, 18, 0.12);
+    --ink-06:   rgba(28, 24, 18, 0.06);
+    --rule:     #dcd4c2;
+
+    --c-first:  #c08a4a;   /* amber      — 1st degree */
+    --c-second: #b4542c;   /* terracotta — 2nd degree */
+    --c-third:  #8a2727;   /* crimson    — 3rd degree */
+
+    --serif: 'IBM Plex Serif', 'Iowan Old Style', Georgia, serif;
+    --sans:  'Space Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono:  'Fira Code', ui-monospace, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  body {
+    background-image:
+      radial-gradient(1000px 500px at 85% -10%, rgba(192, 138, 74, 0.08), transparent 60%),
+      radial-gradient(800px 400px at -10% 110%, rgba(138, 39, 39, 0.06), transparent 60%);
+    min-height: 100vh;
+  }
+
+  /* ─────────────────────── top disclaimer strip ─────────────────────────── */
+  .disclaimer-bar {
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8px 24px;
+    text-align: center;
+  }
+  .disclaimer-bar span { opacity: 0.7; }
+  .disclaimer-bar strong { font-weight: 500; letter-spacing: 0.1em; }
+
+  /* ─────────────────────── container ────────────────────────────────────── */
+  .page { max-width: 1240px; margin: 0 auto; padding: 0 32px; }
+
+  header.site {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 32px 0 24px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .brand {
+    font-family: var(--serif);
+    font-size: 28px;
+    letter-spacing: -0.01em;
+  }
+  .brand em { font-style: italic; color: var(--c-second); }
+  .brand .slash { color: var(--ink-30); margin: 0 2px; }
+  .meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+  }
+
+  /* ─────────────────────── hero ─────────────────────────────────────────── */
+  .hero {
+    padding: 80px 0 72px;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 64px;
+    align-items: end;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(48px, 7vw, 88px);
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+  }
+  .hero h1 em { font-style: italic; color: var(--c-second); }
+  .hero h1 .under {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 10px;
+    text-decoration-color: var(--ink-30);
+  }
+  .hero p {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--ink-70);
+    max-width: 42ch;
+  }
+  .hero p + p { margin-top: 14px; }
+  .hero .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 28px; height: 1px;
+    background: var(--ink-30);
+  }
+
+  @media (max-width: 880px) {
+    .hero { grid-template-columns: 1fr; gap: 32px; padding: 48px 0; }
+  }
+
+  /* ─────────────────────── severity legend chips ────────────────────────── */
+  .legend {
+    display: flex;
+    gap: 24px;
+    margin-top: 28px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-70);
+  }
+  .chip .swatch {
+    width: 14px; height: 14px;
+    border-radius: 2px;
+  }
+  .chip.first  .swatch { background: var(--c-first); }
+  .chip.second .swatch { background: var(--c-second); }
+  .chip.third  .swatch { background: var(--c-third); }
+
+  /* ─────────────────────── upload zone ──────────────────────────────────── */
+  section.upload {
+    padding: 64px 0;
+  }
+  .section-title {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-style: italic;
+    margin-bottom: 8px;
+  }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--ink-50);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .section-desc {
+    font-size: 14px;
+    color: var(--ink-70);
+    max-width: 60ch;
+    margin-bottom: 32px;
+  }
+
+  .drop {
+    border: 1.5px dashed var(--ink-30);
+    padding: 80px 32px;
+    text-align: center;
+    background: var(--paper-2);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .drop:hover {
+    border-color: var(--ink);
+    background: #ece6d6;
+  }
+  .drop.dragover {
+    border-color: var(--c-second);
+    border-style: solid;
+    background: #ece6d6;
+    transform: scale(0.995);
+  }
+  .drop .drop-title {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 36px;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .drop .drop-subtitle {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+  }
+  .drop input[type=file] { display: none; }
+
+  .drop .hint {
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--ink-50);
+  }
+
+  /* ─────────────────────── error / loading banners ──────────────────────── */
+  .banner {
+    display: none;
+    margin-top: 16px;
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    border-left: 3px solid;
+  }
+  .banner.show { display: block; }
+  .banner.error   { background: #fbeae3; border-color: var(--c-third); color: #5a1717; }
+  .banner.loading { background: var(--paper-2); border-color: var(--ink); color: var(--ink); }
+  .banner.loading::after {
+    content: "▒";
+    display: inline-block;
+    margin-left: 8px;
+    animation: blink 1s infinite steps(2);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ─────────────────────── results section ──────────────────────────────── */
+  section.results {
+    display: none;
+    padding: 48px 0 96px;
+    border-top: 1px solid var(--rule);
+    animation: fadeup 0.6s cubic-bezier(0.2, 0.7, 0.1, 1.0);
+  }
+  section.results.show { display: block; }
+  @keyframes fadeup {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .results-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 48px;
+    margin-top: 32px;
+  }
+  @media (max-width: 880px) {
+    .results-grid { grid-template-columns: 1fr; gap: 32px; }
+  }
+
+  /* image viewer */
+  .viewer {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .viewer .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+  }
+  .viewer .tab {
+    flex: 1;
+    padding: 14px 12px;
+    background: none;
+    border: none;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+    cursor: pointer;
+    transition: color 0.15s;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .viewer .tab:hover { color: var(--ink); }
+  .viewer .tab.active {
+    color: var(--ink);
+    border-bottom-color: var(--c-second);
+  }
+  .viewer .image-wrap {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1c1812;
+    padding: 0;
+  }
+  .viewer .image-wrap img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .viewer .caption {
+    padding: 12px 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--ink-50);
+    border-top: 1px solid var(--rule);
+    background: var(--paper);
+  }
+
+  /* verdict card */
+  .verdict {
+    padding: 36px 0 0;
+  }
+  .verdict .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+    margin-bottom: 16px;
+  }
+  .verdict .class-name {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 400;
+    font-size: clamp(48px, 6vw, 72px);
+    line-height: 0.95;
+    margin-bottom: 8px;
+  }
+  .verdict .class-name[data-severity="0"] { color: var(--c-first); }
+  .verdict .class-name[data-severity="1"] { color: var(--c-second); }
+  .verdict .class-name[data-severity="2"] { color: var(--c-third); }
+
+  .verdict .confidence {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: var(--ink-70);
+  }
+  .verdict .confidence strong {
+    color: var(--ink);
+    font-weight: 500;
+    font-size: 16px;
+  }
+
+  /* probability bars */
+  .probs {
+    margin-top: 40px;
+    padding-top: 28px;
+    border-top: 1px solid var(--rule);
+  }
+  .probs h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+    font-weight: 500;
+    margin-bottom: 20px;
+  }
+  .bar-row {
+    margin-bottom: 18px;
+  }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .bar-head .label {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 19px;
+  }
+  .bar-head .value {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar-track {
+    height: 4px;
+    background: var(--ink-06);
+    position: relative;
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 0;
+    transition: width 0.8s cubic-bezier(0.2, 0.7, 0.1, 1.0);
+  }
+  .bar-row[data-severity="0"] .bar-fill { background: var(--c-first); }
+  .bar-row[data-severity="1"] .bar-fill { background: var(--c-second); }
+  .bar-row[data-severity="2"] .bar-fill { background: var(--c-third); }
+
+  /* area stats */
+  .stats {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+  }
+  .stat {
+    padding: 12px 16px 12px 0;
+  }
+  .stat + .stat {
+    border-left: 1px solid var(--rule);
+    padding-left: 16px;
+  }
+  .stat .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+    margin-bottom: 6px;
+  }
+  .stat .stat-value {
+    font-family: var(--serif);
+    font-size: 28px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat[data-severity="0"] .stat-value { color: var(--c-first); }
+  .stat[data-severity="1"] .stat-value { color: var(--c-second); }
+  .stat[data-severity="2"] .stat-value { color: var(--c-third); }
+
+  .reset-row {
+    margin-top: 40px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 12px 22px;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: #000; }
+  .btn.ghost {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--ink-30);
+  }
+  .btn.ghost:hover { border-color: var(--ink); background: var(--ink-06); }
+
+  /* ─────────────────────── about / footer ───────────────────────────────── */
+  section.about {
+    padding: 72px 0;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 64px;
+  }
+  @media (max-width: 880px) {
+    section.about { grid-template-columns: 1fr; gap: 32px; padding: 48px 0; }
+  }
+  .about h2 {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 36px;
+    font-weight: 400;
+    line-height: 1.05;
+  }
+  .about dl {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    row-gap: 14px;
+    column-gap: 24px;
+    font-size: 14px;
+  }
+  .about dt {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+    padding-top: 2px;
+  }
+  .about dd {
+    color: var(--ink-70);
+    line-height: 1.55;
+  }
+  .about dd code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--ink-06);
+    padding: 1px 6px;
+    border-radius: 2px;
+    color: var(--ink);
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding: 32px 0 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-50);
+  }
+  footer a { color: var(--ink-70); text-decoration: none; border-bottom: 1px solid var(--ink-12); }
+  footer a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+
+  @media (max-width: 600px) {
+    footer { flex-direction: column; gap: 14px; align-items: flex-start; }
+    .stats { grid-template-columns: 1fr; }
+    .stat + .stat { border-left: none; border-top: 1px solid var(--rule); padding-left: 0; padding-top: 14px; }
+  }
+</style>
+</head>
+
+<body>
+  <div class="disclaimer-bar">
+    <strong>Research demo</strong> &nbsp;<span>·</span>&nbsp;
+    <span>Not a medical device. Do not use for diagnosis. Seek qualified clinical advice.</span>
+  </div>
+
+  <div class="page">
+
+    <header class="site">
+      <div class="brand">burn<span class="slash">/</span><em>degree</em></div>
+      <div class="meta">v2.0 &nbsp;·&nbsp; EfficientNet-B3 + U-Net + GAP-MLP</div>
+    </header>
+
+    <!-- ─────────── HERO ─────────── -->
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Multi-task vision model</div>
+        <h1>
+          Classify &amp; <em>segment</em><br>
+          burn wounds from a<br>
+          <span class="under">single photograph.</span>
+        </h1>
+      </div>
+      <div>
+        <p>
+          A shared EfficientNet-B3 encoder (ImageNet-pretrained) powers two heads
+          in a single forward pass: a GAP + MLP classification head predicts burn
+          severity — first, second, or third degree — while a U-Net decoder
+          produces a binary pixel-level mask of the affected tissue.
+        </p>
+        <p>
+          Drop an image below to see the model's prediction, per-class confidence,
+          and a coloured overlay showing where and how deep it thinks the burn is.
+        </p>
+        <div class="legend">
+          <div class="chip first"><span class="swatch"></span>1st degree</div>
+          <div class="chip second"><span class="swatch"></span>2nd degree</div>
+          <div class="chip third"><span class="swatch"></span>3rd degree</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── UPLOAD ─────────── -->
+    <section class="upload">
+      <div class="section-num">01 / Upload</div>
+      <div class="section-title">Submit an image for analysis.</div>
+      <div class="section-desc">
+        JPEG, PNG, or WebP up to 10 MB. Images are processed in-memory and never
+        stored on the server.
+      </div>
+
+      <label class="drop" id="drop">
+        <input type="file" id="file-input" accept="image/*">
+        <div class="drop-title">Drop an image, or click to browse.</div>
+        <div class="drop-subtitle">JPG / PNG / WEBP &nbsp;·&nbsp; max 10 MB</div>
+        <div class="hint" id="drop-hint">Expected latency: ~2–10 s depending on server.</div>
+      </label>
+
+      <div class="banner loading" id="loading-banner">Running inference with 4-way test-time augmentation</div>
+      <div class="banner error"   id="error-banner"></div>
+    </section>
+
+    <!-- ─────────── RESULTS ─────────── -->
+    <section class="results" id="results">
+      <div class="section-num">02 / Result</div>
+      <div class="section-title">Model prediction.</div>
+
+      <div class="results-grid">
+        <!-- left: image viewer -->
+        <div>
+          <div class="viewer">
+            <div class="tabs" role="tablist">
+              <button class="tab active" data-tab="original" type="button">Original</button>
+              <button class="tab"        data-tab="overlay"  type="button">Overlay</button>
+              <button class="tab"        data-tab="mask"     type="button">Segmentation</button>
+            </div>
+            <div class="image-wrap">
+              <img id="result-img" alt="Result">
+            </div>
+            <div class="caption" id="result-caption">Original upload</div>
+          </div>
+        </div>
+
+        <!-- right: verdict + probs + stats -->
+        <div>
+          <div class="verdict">
+            <div class="eyebrow">Predicted class</div>
+            <div class="class-name" id="verdict-class" data-severity="0">—</div>
+            <div class="confidence"><strong id="verdict-conf">—</strong> &nbsp;top-1 confidence</div>
+          </div>
+
+          <div class="probs">
+            <h3>Per-class probability</h3>
+
+            <div class="bar-row" data-severity="0">
+              <div class="bar-head">
+                <span class="label">1st degree</span>
+                <span class="value" id="prob-0">0.00%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" id="fill-0"></div></div>
+            </div>
+            <div class="bar-row" data-severity="1">
+              <div class="bar-head">
+                <span class="label">2nd degree</span>
+                <span class="value" id="prob-1">0.00%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" id="fill-1"></div></div>
+            </div>
+            <div class="bar-row" data-severity="2">
+              <div class="bar-head">
+                <span class="label">3rd degree</span>
+                <span class="value" id="prob-2">0.00%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" id="fill-2"></div></div>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="stat" data-severity="0">
+              <div class="stat-label">Area · 1st</div>
+              <div class="stat-value" id="area-0">—</div>
+            </div>
+            <div class="stat" data-severity="1">
+              <div class="stat-label">Area · 2nd</div>
+              <div class="stat-value" id="area-1">—</div>
+            </div>
+            <div class="stat" data-severity="2">
+              <div class="stat-label">Area · 3rd</div>
+              <div class="stat-value" id="area-2">—</div>
+            </div>
+          </div>
+
+          <div class="reset-row">
+            <button class="btn" id="btn-new" type="button">Analyse another image</button>
+            <span style="font-family: var(--mono); font-size: 11px; color: var(--ink-50); letter-spacing: 0.08em; text-transform: uppercase;" id="latency">—</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── ABOUT ─────────── -->
+    <section class="about">
+      <h2>About the model.</h2>
+      <dl>
+        <dt>Backbone</dt>
+        <dd><code>efficientnet-b3</code> — a 12M-parameter CNN pretrained on ImageNet, used as a shared encoder for both the classification and segmentation heads. Encoder weights are fine-tuned at a 10× lower learning rate than the task heads.</dd>
+
+        <dt>Classification</dt>
+        <dd>Global average pooling on the deepest encoder feature map, followed by a two-layer MLP (Dropout → Linear(256) → GELU → Dropout → Linear(3)) projecting to three logits: <em>1st / 2nd / 3rd degree</em>.</dd>
+
+        <dt>Segmentation</dt>
+        <dd>U-Net decoder with skip connections from the EfficientNet-B3 encoder stages. Produces a binary mask (wound vs. not-wound) at 384×384, bilinearly upsampled to the original image resolution. Sigmoid activation — no explicit background class.</dd>
+
+        <dt>Training</dt>
+        <dd>60 epochs, AdamW with warmup-cosine LR schedule, gradient accumulation (effective batch 32), class-weighted focal loss for classification, combined BCE + Dice loss for segmentation, EMA (decay 0.998), mixed precision on a single T4.</dd>
+
+        <dt>Inference</dt>
+        <dd>4-way test-time augmentation (identity, horizontal flip, vertical flip, both) with softmax/sigmoid averaging over the four views. Final weights are taken from the EMA shadow model.</dd>
+
+        <dt>Limitations</dt>
+        <dd>Trained on a limited dataset of curated images. The segmentation mask is binary (wound vs. not-wound) — per-class area percentages in the results are derived from the classification prediction, not independent per-class masks.</dd>
+      </dl>
+    </section>
+
+    <footer>
+      <div>© 2026 · Built with PyTorch + FastAPI</div>
+      <div>Research use only</div>
+    </footer>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = id => document.getElementById(id);
+  const drop = $('drop');
+  const fileInput = $('file-input');
+  const loading = $('loading-banner');
+  const errorBanner = $('error-banner');
+  const results = $('results');
+
+  // ───── drag & drop ─────
+  ['dragenter', 'dragover'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); drop.classList.add('dragover'); })
+  );
+  ['dragleave', 'drop'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); drop.classList.remove('dragover'); })
+  );
+  drop.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) handleFile(f);
+  });
+
+  // ───── tab switching ─────
+  let currentResult = null;
+  const captions = {
+    original: 'Original upload',
+    overlay:  'Segmentation overlay · coloured by predicted severity',
+    mask:     'Segmentation mask only · on black background',
+  };
+  document.querySelectorAll('.viewer .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.viewer .tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      if (!currentResult) return;
+      const which = btn.dataset.tab;
+      const key = which === 'original' ? 'original_image'
+                : which === 'overlay'  ? 'overlay_image'
+                                       : 'mask_image';
+      $('result-img').src = currentResult[key];
+      $('result-caption').textContent = captions[which];
+    });
+  });
+
+  $('btn-new').addEventListener('click', () => {
+    results.classList.remove('show');
+    fileInput.value = '';
+    window.scrollTo({ top: drop.offsetTop - 40, behavior: 'smooth' });
+  });
+
+  // ───── upload + predict ─────
+  async function handleFile(file) {
+    hide(errorBanner);
+    if (!file.type.startsWith('image/')) {
+      return showError('Please upload an image (JPG, PNG, or WebP).');
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return showError('Image too large. Max 10 MB.');
+    }
+
+    show(loading);
+    results.classList.remove('show');
+
+    const form = new FormData();
+    form.append('file', file);
+
+    try {
+      const res = await fetch('/api/predict', { method: 'POST', body: form });
+      hide(loading);
+      if (!res.ok) {
+        const msg = await res.text().catch(() => res.statusText);
+        return showError(`Server error (${res.status}): ${msg || 'prediction failed.'}`);
+      }
+      const data = await res.json();
+      renderResult(data);
+    } catch (err) {
+      hide(loading);
+      showError('Network error: ' + err.message);
+    }
+  }
+
+  function renderResult(data) {
+    currentResult = data;
+    const sev = data.predicted_class;
+
+    // verdict
+    const verdictEl = $('verdict-class');
+    verdictEl.textContent = data.predicted_class_name;
+    verdictEl.dataset.severity = String(sev);
+    $('verdict-conf').textContent = (data.confidence * 100).toFixed(1) + '%';
+
+    // probabilities
+    const classes = ['1st degree', '2nd degree', '3rd degree'];
+    classes.forEach((name, i) => {
+      const p = data.probabilities[name] || 0;
+      $('prob-' + i).textContent = (p * 100).toFixed(2) + '%';
+      // reset then animate (so repeated predictions re-animate)
+      const fill = $('fill-' + i);
+      fill.style.width = '0%';
+      requestAnimationFrame(() => {
+        fill.style.width = (p * 100).toFixed(2) + '%';
+      });
+    });
+
+    // area stats
+    classes.forEach((name, i) => {
+      const pct = data.per_class_area_pct[name] ?? 0;
+      $('area-' + i).textContent = pct.toFixed(1) + '%';
+    });
+
+    // image viewer — start on Original
+    $('result-img').src = data.original_image;
+    $('result-caption').textContent = captions.original;
+    document.querySelectorAll('.viewer .tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.viewer .tab[data-tab="original"]').classList.add('active');
+
+    // latency
+    if (data.latency_ms != null) {
+      $('latency').textContent = 'latency · ' + data.latency_ms + ' ms' +
+                                  (data.tta_used ? ' · tta on' : '');
+    }
+
+    results.classList.add('show');
+    setTimeout(() => {
+      results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }
+
+  function showError(msg) {
+    errorBanner.textContent = msg;
+    show(errorBanner);
+  }
+  function show(el) { el.classList.add('show'); }
+  function hide(el) { el.classList.remove('show'); }
+
+  // ───── health check on load ─────
+  fetch('/api/health').then(r => r.json()).then(h => {
+    if (!h.model_loaded) {
+      showError('Model not loaded on server: ' + (h.error || 'unknown error'));
+    } else {
+      $('drop-hint').textContent =
+        'Running on ' + h.device.toUpperCase() +
+        (h.tta ? ' · 4-way TTA enabled.' : '.');
+    }
+  }).catch(() => {
+    showError('Cannot reach backend. Is the FastAPI server running?');
+  });
+})();
+</script>
+</body>
+</html>

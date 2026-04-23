@@ -1,0 +1,24 @@
+# ── core ML ────────────────────────────────────────────────────────────────
+# For CPU-only (works on any machine, slow but fine for demo):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# For CUDA 12.1 (GPU deployment):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch>=2.1.0
+torchvision>=0.16.0
+
+# EfficientNet-B3 encoder + U-Net decoder
+segmentation-models-pytorch>=0.3.4
+
+# augmentations (used in inference TTA)
+albumentations>=1.4.3
+
+# image I/O
+Pillow>=10.0.0
+
+# numerics
+numpy>=1.24.0
+
+# ── web server ─────────────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
